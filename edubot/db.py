@@ -3,13 +3,14 @@
 Minimal Postgres layer for serverless (pg8000).
 Designed for Supabase (Free) or Neon (Free).
 
-Changes:
-- Use a real ssl.SSLContext instead of boolean for pg8000.native.Connection
-- Slightly more robust DSN parsing (postgres:// or postgresql://)
+Fixes:
+- Force IPv4 resolution for host to avoid "Cannot assign requested address" on some runtimes.
+- Use a real ssl.SSLContext for TLS (Supabase/Neon).
 """
 
 import os
 import ssl
+import socket
 import urllib.parse
 import pg8000.native as pg
 
@@ -18,26 +19,33 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 
 
 def _build_ssl_context() -> ssl.SSLContext:
-    """
-    Create a secure SSL context suitable for Supabase/Neon.
-    """
     ctx = ssl.create_default_context()
-    # Optional hardening (Supabase/Neon are fine with defaults):
     ctx.check_hostname = True
     ctx.verify_mode = ssl.CERT_REQUIRED
-    # Uncomment if you want to force TLS1.2+ explicitly:
-    # ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     return ctx
+
+
+def _resolve_ipv4(host: str, port: int) -> str:
+    """
+    Resolve hostname to an IPv4 address (AF_INET) to avoid IPv6 issues
+    like 'Cannot assign requested address' in some serverless environments.
+    """
+    try:
+        infos = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+        if not infos:
+            return host  # fallback to hostname
+        # infos[0][4] -> (ip, port)
+        return infos[0][4][0]
+    except Exception:
+        return host  # fallback gracefully
 
 
 def _parse_dsn(dsn: str) -> dict:
     if not dsn:
         raise RuntimeError("DATABASE_URL is not set")
 
-    # Support both postgres:// and postgresql://
-    # urllib.parse handles both, but we normalize just in case.
+    # Normalize scheme
     dsn = dsn.replace("postgresql://", "postgres://", 1)
-
     u = urllib.parse.urlparse(dsn)
 
     user = urllib.parse.unquote(u.username or "")
@@ -46,16 +54,16 @@ def _parse_dsn(dsn: str) -> dict:
     port = u.port or 5432
     database = (u.path or "/").lstrip("/")
 
-    # Build SSL context explicitly (pg8000.native expects SSLContext, not boolean)
-    ssl_ctx = _build_ssl_context()
+    # Force IPv4 resolution
+    host_v4 = _resolve_ipv4(host, port)
 
     return {
         "user": user,
         "password": password,
-        "host": host,
+        "host": host_v4,
         "port": port,
         "database": database,
-        "ssl_context": ssl_ctx,
+        "ssl_context": _build_ssl_context(),
     }
 
 
