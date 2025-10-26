@@ -1,13 +1,6 @@
 {
   "version": 2,
   "functions": {
-    "api/index.py": {
-      "runtime": "@vercel/python@3.11",
-      "includeFiles": ["edubot/**", "bank/**"],
-      "maxDuration": 60
-    }
-  },
-  "routes": [
-    { "src": "/api/(.*)", "dest": "api/index.py" }
-  ]
+    "api/**/*.py": { "runtime": "@vercel/python@3.11" }
+  }
 }
