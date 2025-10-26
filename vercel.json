@@ -1,6 +1,9 @@
 {
   "version": 2,
   "functions": {
-    "api/**/*.py": { "runtime": "@vercel/python@3.11" }
+    "api/index.py": {
+      "runtime": "@vercel/python@3.11",
+      "includeFiles": ["edubot/**", "bank/**"]
+    }
   }
 }
