@@ -2,16 +2,11 @@
   "functions": {
     "api/index.py": {
       "runtime": "python3.11",
-      "includeFiles": [
-        "edubot/**",
-        "bank/**"
-      ]
+      "maxDuration": 60,
+      "includeFiles": "{edubot,bank}/**"
     }
   },
   "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "api/index.py"
-    }
+    { "src": "/api/(.*)", "dest": "api/index.py" }
   ]
 }
