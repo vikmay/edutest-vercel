@@ -1,6 +1,5 @@
-# api/index.py
 # -*- coding: utf-8 -*-
-import os, asyncio, traceback, sys
+import os, asyncio, traceback
 from fastapi import FastAPI, Request, Response
 from telegram import Update
 
@@ -10,9 +9,10 @@ app = FastAPI()
 tg_app = None
 _started = False
 _lock = asyncio.Lock()
+last_error = None  # <— збережемо останню помилку старту
 
 async def ensure_started():
-    global tg_app, _started
+    global tg_app, _started, last_error
     if _started:
         return
     async with _lock:
@@ -23,9 +23,12 @@ async def ensure_started():
             await tg_app.initialize()
             await tg_app.start()
             _started = True
-        except Exception:
-            traceback.print_exc()  # виводимо стек у логи
-            # не піднімаємо далі — нехай /api/botinfo покаже помилку
+            last_error = None
+        except Exception as e:
+            # запишемо traceback у last_error і в stderr
+            tb = traceback.format_exc()
+            last_error = f"{e.__class__.__name__}: {e}\n{tb}"
+            print(last_error)
 
 @app.get("/api/health")
 async def health():
@@ -33,28 +36,24 @@ async def health():
 
 @app.get("/api/botinfo")
 async def botinfo():
-    try:
-        await ensure_started()
-        if not tg_app:
-            return {"ok": False, "error": "tg_app not started"}
-        me = await tg_app.bot.get_me()
-        return {"id": me.id, "username": me.username}
-    except Exception as e:
-        # Повернемо текст помилки у відповідь (тимчасово для діагностики)
-        traceback.print_exc()
-        return Response(content=f"botinfo error: {e}", status_code=500, media_type="text/plain")
+    await ensure_started()
+    if not _started or tg_app is None:
+        # Повернемо зрозумілу діагностику, але без секретів
+        return {
+            "ok": False,
+            "error": "tg_app not started",
+            "hint": "check environment variables and database connectivity",
+            "last_error": (last_error[:5000] if last_error else None)
+        }
+    me = await tg_app.bot.get_me()
+    return {"id": me.id, "username": me.username}
 
 @app.post("/api/webhook")
 async def webhook(request: Request):
-    try:
-        await ensure_started()
-        if not tg_app:
-            return Response(status_code=500, content="webhook: tg_app not started")
-        data = await request.json()
-        update = Update.de_json(data, tg_app.bot)
-        await tg_app.process_update(update)
-        return Response(status_code=200)
-    except Exception as e:
-        traceback.print_exc()
-        # Telegram вимагає швидкий 200, але для діагностики повернемо 500 з текстом
-        return Response(content=f"webhook error: {e}", status_code=500, media_type="text/plain")
+    await ensure_started()
+    if not _started or tg_app is None:
+        return Response(status_code=500, content="webhook: tg_app not started")
+    data = await request.json()
+    update = Update.de_json(data, tg_app.bot)
+    await tg_app.process_update(update)
+    return Response(status_code=200)
